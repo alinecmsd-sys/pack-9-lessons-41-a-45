@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script>
-      // Polyfill para evitar erro 'process is not defined' antes da injeção real
+      // Polyfill para garantir que process.env não quebre a renderização inicial
       window.process = window.process || { env: {} };
     </script>
     <style>
@@ -21,7 +21,6 @@
         .lesson-gradient {
             background: linear-gradient(135deg, #6366f1 0%, #4338ca 100%);
         }
-        /* Esconde scrollbar mas mantém funcionalidade */
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
     </style>
