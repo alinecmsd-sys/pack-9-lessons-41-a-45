@@ -2,12 +2,7 @@
 import { GoogleGenAI, Modality } from "@google/genai";
 
 class TTSService {
-  private ai: GoogleGenAI;
   private audioContext: AudioContext | null = null;
-
-  constructor() {
-    this.ai = new GoogleGenAI({ apiKey: process.env.API_KEY || "" });
-  }
 
   private async getAudioContext() {
     if (!this.audioContext) {
@@ -50,7 +45,10 @@ class TTSService {
 
   async speak(text: string) {
     try {
-      const response = await this.ai.models.generateContent({
+      // Instanciação dinâmica para evitar erros de inicialização se a API_KEY não estiver pronta
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || "" });
+      
+      const response = await ai.models.generateContent({
         model: "gemini-2.5-flash-preview-tts",
         contents: [{ parts: [{ text: `Say clearly at a slightly slower pace (0.9x speed): ${text}` }] }],
         config: {
