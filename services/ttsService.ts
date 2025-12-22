@@ -4,7 +4,11 @@ import { GoogleGenAI, Modality } from "@google/genai";
 class TTSService {
   private audioContext: AudioContext | null = null;
 
-  private async initContext() {
+  /**
+   * Initializes or resumes the AudioContext.
+   * MUST be called directly within a user-triggered event handler to work on all browsers.
+   */
+  async ensureContext(): Promise<AudioContext> {
     if (!this.audioContext) {
       this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({
         sampleRate: 24000
@@ -25,20 +29,27 @@ class TTSService {
     return bytes;
   }
 
-  private async decodeAudioData(
-    data: Uint8Array,
+  private async decodePCM(
+    uint8Array: Uint8Array,
     ctx: AudioContext,
     sampleRate: number,
     numChannels: number,
   ): Promise<AudioBuffer> {
-    const dataInt16 = new Int16Array(data.buffer);
+    // Ensure we correctly view the buffer as 16-bit integers
+    // We use a DataView or specify offset/length to avoid alignment issues with the underlying buffer
+    const dataInt16 = new Int16Array(
+      uint8Array.buffer,
+      uint8Array.byteOffset,
+      uint8Array.byteLength / 2
+    );
+    
     const frameCount = dataInt16.length / numChannels;
     const buffer = ctx.createBuffer(numChannels, frameCount, sampleRate);
 
     for (let channel = 0; channel < numChannels; channel++) {
       const channelData = buffer.getChannelData(channel);
       for (let i = 0; i < frameCount; i++) {
-        // Normalização de PCM 16-bit para Float32
+        // Normalize 16-bit signed integer (-32768 to 32767) to float (-1.0 to 1.0)
         channelData[i] = dataInt16[i * numChannels + channel] / 32768.0;
       }
     }
@@ -46,16 +57,16 @@ class TTSService {
   }
 
   async speak(text: string) {
-    // 1. Inicia/Resume o contexto de áudio IMEDIATAMENTE no gesto do usuário
-    const ctx = await this.initContext();
+    // Important: AudioContext must be resumed by a user gesture.
+    // The calling component handles this by calling ensureContext() first.
+    const ctx = await this.ensureContext();
 
     try {
-      // 2. Instancia o AI dentro do método para usar a chave mais recente injetada
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || "" });
       
       const response = await ai.models.generateContent({
         model: "gemini-2.5-flash-preview-tts",
-        contents: [{ parts: [{ text: `Say clearly at a slightly slower pace (0.9x speed): ${text}` }] }],
+        contents: [{ parts: [{ text: `Say clearly at a normal pace: ${text}` }] }],
         config: {
           responseModalities: [Modality.AUDIO],
           speechConfig: {
@@ -68,13 +79,12 @@ class TTSService {
 
       const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
       if (!base64Audio) {
-        console.warn("Nenhum dado de áudio retornado pela API.");
+        console.error("TTS Service: No audio data returned from Gemini.");
         return;
       }
 
-      // 3. Decodifica e reproduz
       const audioData = this.decodeBase64(base64Audio);
-      const audioBuffer = await this.decodeAudioData(audioData, ctx, 24000, 1);
+      const audioBuffer = await this.decodePCM(audioData, ctx, 24000, 1);
 
       const source = ctx.createBufferSource();
       source.buffer = audioBuffer;
@@ -82,7 +92,7 @@ class TTSService {
       source.start(0);
       
     } catch (error) {
-      console.error("Erro no serviço de TTS:", error);
+      console.error("TTS Service error during speak():", error);
     }
   }
 }

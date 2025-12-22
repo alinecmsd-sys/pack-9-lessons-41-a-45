@@ -13,13 +13,22 @@ const AudioButton: React.FC<AudioButtonProps> = ({ text }) => {
     e.preventDefault();
     if (isProcessing) return;
 
+    // CRITICAL: Ensure AudioContext is resumed/initialized inside the synchronous
+    // block of the click event. This is required by mobile browsers.
+    try {
+      await ttsService.ensureContext();
+    } catch (err) {
+      console.error("Failed to initialize AudioContext:", err);
+    }
+
     setIsProcessing(true);
     try {
-      // O ttsService.speak agora lida com o AudioContext internamente logo no início
       await ttsService.speak(text);
+    } catch (error) {
+      console.error("Error playing audio:", error);
     } finally {
-      // Pequeno timeout visual para feedback
-      setTimeout(() => setIsProcessing(false), 1000);
+      // Small visual buffer
+      setTimeout(() => setIsProcessing(false), 800);
     }
   };
 
@@ -27,12 +36,13 @@ const AudioButton: React.FC<AudioButtonProps> = ({ text }) => {
     <button
       onClick={handlePlay}
       disabled={isProcessing}
-      className={`p-2 rounded-full transition-all duration-200 ${
+      className={`p-2 rounded-full transition-all duration-200 flex items-center justify-center min-w-[36px] min-h-[36px] ${
         isProcessing 
-          ? 'bg-indigo-200 text-indigo-400 cursor-not-allowed' 
-          : 'bg-indigo-600 text-white hover:bg-indigo-700 active:scale-95 shadow-md'
+          ? 'bg-indigo-200 text-indigo-400 cursor-wait' 
+          : 'bg-indigo-600 text-white hover:bg-indigo-700 active:scale-90 shadow-md'
       }`}
-      aria-label="Ouvir pronúncia"
+      aria-label="Listen to pronunciation"
+      title="Listen"
     >
       {isProcessing ? (
         <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
