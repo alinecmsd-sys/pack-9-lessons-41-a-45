@@ -1,5 +1,7 @@
 
-import React, { useState } from 'react';
+"use client";
+
+import React, { useState, useEffect } from 'react';
 import { LESSONS } from './constants';
 import { TabType, Lesson } from './types';
 import AudioButton from './components/AudioButton';
@@ -8,6 +10,23 @@ import ExerciseSection from './components/ExerciseSection';
 const App: React.FC = () => {
   const [activeLessonId, setActiveLessonId] = useState<number>(41);
   const [activeTab, setActiveTab] = useState<TabType>(TabType.VOCABULARY);
+  const [isMounted, setIsMounted] = useState(false);
+
+  // Prevent hydration errors and "white screen" during build/initial load on Vercel
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
+  if (!isMounted) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-slate-500 font-medium">Carregando Lições...</p>
+        </div>
+      </div>
+    );
+  }
 
   const activeLesson = LESSONS.find(l => l.id === activeLessonId) || LESSONS[0];
 
@@ -138,7 +157,7 @@ const App: React.FC = () => {
         </div>
       </main>
 
-      {/* Floating Progress Tracker (Visual only for now) */}
+      {/* Floating Progress Tracker */}
       <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-white px-6 py-4 rounded-2xl shadow-2xl border border-slate-200 flex items-center gap-6 z-50">
         <div className="flex items-center gap-3">
           <div className="w-32 h-3 bg-slate-100 rounded-full overflow-hidden">

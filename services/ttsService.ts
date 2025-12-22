@@ -1,23 +1,44 @@
 
 import { GoogleGenAI, Modality } from "@google/genai";
 
+/**
+ * Service to handle Text-to-Speech using Gemini API.
+ * Follows the requirement of avoiding AudioContext and using standard HTMLAudioElement.
+ */
 class TTSService {
-  private audioContext: AudioContext | null = null;
+  private writeString(view: DataView, offset: number, string: string) {
+    for (let i = 0; i < string.length; i++) {
+      view.setUint8(offset + i, string.charCodeAt(i));
+    }
+  }
 
   /**
-   * Initializes or resumes the AudioContext.
-   * MUST be called directly within a user-triggered event handler to work on all browsers.
+   * Encodes raw PCM 16-bit data into a WAV Blob.
+   * Gemini 2.5 Flash TTS returns raw PCM 16-bit Mono at 24000Hz.
    */
-  async ensureContext(): Promise<AudioContext> {
-    if (!this.audioContext) {
-      this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({
-        sampleRate: 24000
-      });
+  private encodeWAV(samples: Int16Array, sampleRate: number = 24000): Blob {
+    const buffer = new ArrayBuffer(44 + samples.length * 2);
+    const view = new DataView(buffer);
+
+    this.writeString(view, 0, 'RIFF');
+    view.setUint32(4, 32 + samples.length * 2, true);
+    this.writeString(view, 8, 'WAVE');
+    this.writeString(view, 12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true); // PCM format
+    view.setUint16(22, 1, true); // Mono
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * 2, true); // Byte rate
+    view.setUint16(32, 2, true); // Block align
+    view.setUint16(34, 16, true); // Bits per sample
+    this.writeString(view, 36, 'data');
+    view.setUint32(40, samples.length * 2, true);
+
+    for (let i = 0; i < samples.length; i++) {
+      view.setInt16(44 + i * 2, samples[i], true);
     }
-    if (this.audioContext.state === 'suspended') {
-      await this.audioContext.resume();
-    }
-    return this.audioContext;
+
+    return new Blob([buffer], { type: 'audio/wav' });
   }
 
   private decodeBase64(base64: string): Uint8Array {
@@ -29,44 +50,22 @@ class TTSService {
     return bytes;
   }
 
-  private async decodePCM(
-    uint8Array: Uint8Array,
-    ctx: AudioContext,
-    sampleRate: number,
-    numChannels: number,
-  ): Promise<AudioBuffer> {
-    // Ensure we correctly view the buffer as 16-bit integers
-    // We use a DataView or specify offset/length to avoid alignment issues with the underlying buffer
-    const dataInt16 = new Int16Array(
-      uint8Array.buffer,
-      uint8Array.byteOffset,
-      uint8Array.byteLength / 2
-    );
-    
-    const frameCount = dataInt16.length / numChannels;
-    const buffer = ctx.createBuffer(numChannels, frameCount, sampleRate);
-
-    for (let channel = 0; channel < numChannels; channel++) {
-      const channelData = buffer.getChannelData(channel);
-      for (let i = 0; i < frameCount; i++) {
-        // Normalize 16-bit signed integer (-32768 to 32767) to float (-1.0 to 1.0)
-        channelData[i] = dataInt16[i * numChannels + channel] / 32768.0;
-      }
-    }
-    return buffer;
-  }
-
-  async speak(text: string) {
-    // Important: AudioContext must be resumed by a user gesture.
-    // The calling component handles this by calling ensureContext() first.
-    const ctx = await this.ensureContext();
-
+  /**
+   * Fetches audio from Gemini and returns a Blob URL.
+   * Initialized only when called to ensure API_KEY availability.
+   */
+  async getAudioUrl(text: string): Promise<string | null> {
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || "" });
-      
+      const apiKey = process.env.API_KEY;
+      if (!apiKey) {
+        console.error("API_KEY is not defined in environment.");
+        return null;
+      }
+
+      const ai = new GoogleGenAI({ apiKey });
       const response = await ai.models.generateContent({
         model: "gemini-2.5-flash-preview-tts",
-        contents: [{ parts: [{ text: `Say clearly at a normal pace: ${text}` }] }],
+        contents: [{ parts: [{ text: `Say clearly: ${text}` }] }],
         config: {
           responseModalities: [Modality.AUDIO],
           speechConfig: {
@@ -77,22 +76,17 @@ class TTSService {
         },
       });
 
-      const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-      if (!base64Audio) {
-        console.error("TTS Service: No audio data returned from Gemini.");
-        return;
-      }
+      const base64Data = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+      if (!base64Data) return null;
 
-      const audioData = this.decodeBase64(base64Audio);
-      const audioBuffer = await this.decodePCM(audioData, ctx, 24000, 1);
-
-      const source = ctx.createBufferSource();
-      source.buffer = audioBuffer;
-      source.connect(ctx.destination);
-      source.start(0);
+      const uint8 = this.decodeBase64(base64Data);
+      const int16 = new Int16Array(uint8.buffer);
+      const wavBlob = this.encodeWAV(int16, 24000);
       
+      return URL.createObjectURL(wavBlob);
     } catch (error) {
-      console.error("TTS Service error during speak():", error);
+      console.error("TTS Service Error:", error);
+      return null;
     }
   }
 }

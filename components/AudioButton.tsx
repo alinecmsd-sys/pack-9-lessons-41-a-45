@@ -1,5 +1,7 @@
 
-import React, { useState } from 'react';
+"use client";
+
+import React, { useState, useEffect, useRef } from 'react';
 import { ttsService } from '../services/ttsService';
 
 interface AudioButtonProps {
@@ -8,27 +10,50 @@ interface AudioButtonProps {
 
 const AudioButton: React.FC<AudioButtonProps> = ({ text }) => {
   const [isProcessing, setIsProcessing] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Cleanup Blob URLs to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      if (audioRef.current && audioRef.current.src) {
+        URL.revokeObjectURL(audioRef.current.src);
+      }
+    };
+  }, []);
 
   const handlePlay = async (e: React.MouseEvent) => {
     e.preventDefault();
     if (isProcessing) return;
 
-    // CRITICAL: Ensure AudioContext is resumed/initialized inside the synchronous
-    // block of the click event. This is required by mobile browsers.
-    try {
-      await ttsService.ensureContext();
-    } catch (err) {
-      console.error("Failed to initialize AudioContext:", err);
-    }
-
     setIsProcessing(true);
+    
     try {
-      await ttsService.speak(text);
+      const url = await ttsService.getAudioUrl(text);
+      
+      if (url) {
+        // Create or reuse audio element following the "useEffect/Interaction" rule
+        if (!audioRef.current) {
+          audioRef.current = new Audio();
+        } else if (audioRef.current.src) {
+          URL.revokeObjectURL(audioRef.current.src);
+        }
+
+        audioRef.current.src = url;
+        
+        // standard .play() which must be in a user interaction context
+        audioRef.current.play().catch((err) => {
+          console.log("Autoplay blocked or playback error:", err);
+          // Fallback UI or message could go here
+        });
+
+        // Reset state when finished
+        audioRef.current.onended = () => setIsProcessing(false);
+      } else {
+        setIsProcessing(false);
+      }
     } catch (error) {
-      console.error("Error playing audio:", error);
-    } finally {
-      // Small visual buffer
-      setTimeout(() => setIsProcessing(false), 800);
+      console.error("Audio playback failed:", error);
+      setIsProcessing(false);
     }
   };
 
@@ -41,12 +66,11 @@ const AudioButton: React.FC<AudioButtonProps> = ({ text }) => {
           ? 'bg-indigo-200 text-indigo-400 cursor-wait' 
           : 'bg-indigo-600 text-white hover:bg-indigo-700 active:scale-90 shadow-md'
       }`}
-      aria-label="Listen to pronunciation"
-      title="Listen"
+      aria-label="Ouvir pronúncia"
     >
       {isProcessing ? (
-        <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+        <svg className="animate-spin h-4 w-4 text-white" viewBox="0 0 24 24">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle>
           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
         </svg>
       ) : (
