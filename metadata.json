@@ -1,0 +1,7 @@
+{
+  "name": "English Pack 9 - Mastery App",
+  "description": "An interactive English learning application for intermediate students, covering Lessons 41-45 with automated exercises and high-quality AI-generated audio.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
