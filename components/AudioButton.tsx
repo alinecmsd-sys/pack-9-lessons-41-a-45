@@ -10,49 +10,65 @@ interface AudioButtonProps {
 
 const AudioButton: React.FC<AudioButtonProps> = ({ text }) => {
   const [isProcessing, setIsProcessing] = useState(false);
+  // Uso de ref para persistir o elemento de áudio sem recriá-lo a cada render
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  // Cleanup Blob URLs to prevent memory leaks
   useEffect(() => {
+    // Inicialização segura apenas no lado do cliente (mount)
+    audioRef.current = new Audio();
+    
+    // Cleanup ao desmontar o componente
     return () => {
-      if (audioRef.current && audioRef.current.src) {
-        URL.revokeObjectURL(audioRef.current.src);
+      if (audioRef.current) {
+        audioRef.current.pause();
+        if (audioRef.current.src && audioRef.current.src.startsWith('blob:')) {
+          URL.revokeObjectURL(audioRef.current.src);
+        }
+        audioRef.current = null;
       }
     };
   }, []);
 
   const handlePlay = async (e: React.MouseEvent) => {
     e.preventDefault();
-    if (isProcessing) return;
+    if (isProcessing || !audioRef.current) return;
 
     setIsProcessing(true);
     
     try {
+      // Obtém o áudio dinâmico do Gemini TTS em formato WAV Blob
       const url = await ttsService.getAudioUrl(text);
       
-      if (url) {
-        // Create or reuse audio element following the "useEffect/Interaction" rule
-        if (!audioRef.current) {
-          audioRef.current = new Audio();
-        } else if (audioRef.current.src) {
+      if (url && audioRef.current) {
+        // Limpa a URL anterior para economizar memória
+        if (audioRef.current.src && audioRef.current.src.startsWith('blob:')) {
           URL.revokeObjectURL(audioRef.current.src);
         }
 
         audioRef.current.src = url;
-        
-        // standard .play() which must be in a user interaction context
-        audioRef.current.play().catch((err) => {
-          console.log("Autoplay blocked or playback error:", err);
-          // Fallback UI or message could go here
-        });
+        audioRef.current.load(); // Garante que o novo source seja carregado
 
-        // Reset state when finished
+        // Tenta tocar o áudio capturando o erro de autoplay/bloqueio
+        const playPromise = audioRef.current.play();
+        
+        if (playPromise !== undefined) {
+          playPromise.catch((err) => {
+            console.log("Autoplay bloqueado ou erro de reprodução:", err);
+            setIsProcessing(false);
+          });
+        }
+
+        // Callbacks de estado
         audioRef.current.onended = () => setIsProcessing(false);
+        audioRef.current.onerror = () => {
+          console.error("Erro no elemento de áudio");
+          setIsProcessing(false);
+        };
       } else {
         setIsProcessing(false);
       }
     } catch (error) {
-      console.error("Audio playback failed:", error);
+      console.error("Falha no processo de áudio:", error);
       setIsProcessing(false);
     }
   };
