@@ -8,10 +8,6 @@ class TTSService {
     }
   }
 
-  /**
-   * Codifica dados PCM 16-bit Mono (24000Hz) em um Blob WAV.
-   * Evita AudioContext para máxima compatibilidade no Vercel.
-   */
   private encodeWAV(samples: Int16Array): Blob {
     const sampleRate = 24000;
     const buffer = new ArrayBuffer(44 + samples.length * 2);
@@ -51,7 +47,7 @@ class TTSService {
     try {
       const apiKey = process.env.API_KEY;
       if (!apiKey) {
-        console.error("API_KEY não encontrada no ambiente.");
+        console.error("Critical: API_KEY is missing from environment.");
         return null;
       }
 
@@ -73,15 +69,12 @@ class TTSService {
       if (!base64Data) return null;
 
       const uint8 = this.decodeBase64(base64Data);
-      
-      // Garante que o buffer tenha tamanho par para Int16Array
-      const buffer = uint8.buffer.slice(uint8.byteOffset, uint8.byteOffset + uint8.byteLength);
-      const int16 = new Int16Array(buffer);
+      const int16 = new Int16Array(uint8.buffer, uint8.byteOffset, uint8.byteLength / 2);
       const wavBlob = this.encodeWAV(int16);
       
       return URL.createObjectURL(wavBlob);
     } catch (error) {
-      console.error("Erro ao buscar áudio TTS:", error);
+      console.error("TTS Fetch Error:", error);
       return null;
     }
   }

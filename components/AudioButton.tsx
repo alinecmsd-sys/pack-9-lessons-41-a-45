@@ -13,9 +13,10 @@ const AudioButton: React.FC<AudioButtonProps> = ({ text }) => {
   const audioInstance = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
-    // Inicializa a instância apenas no cliente
     if (typeof window !== 'undefined') {
       audioInstance.current = new Audio();
+      // Pré-configuração para garantir que o navegador trate o áudio como prioridade
+      audioInstance.current.preload = "auto";
     }
     
     return () => {
@@ -35,16 +36,22 @@ const AudioButton: React.FC<AudioButtonProps> = ({ text }) => {
     
     if (isProcessing || !audioInstance.current) return;
 
+    // Tática de "Warm-up": Tenta dar play em silêncio ou carregar algo vazio
+    // para manter o token de interação do usuário vivo enquanto a API responde.
+    try {
+      audioInstance.current.play().catch(() => {}); 
+      audioInstance.current.pause();
+    } catch (e) {}
+
     setIsProcessing(true);
     
     try {
-      // 1. Gera a URL do Blob de forma assíncrona
       const url = await ttsService.getAudioUrl(text);
       
       if (url && audioInstance.current) {
         const audio = audioInstance.current;
         
-        // Limpa recurso anterior
+        // Limpa blob anterior
         if (audio.src && audio.src.startsWith('blob:')) {
           URL.revokeObjectURL(audio.src);
         }
@@ -52,23 +59,32 @@ const AudioButton: React.FC<AudioButtonProps> = ({ text }) => {
         audio.src = url;
         audio.load();
 
-        // 2. Tenta tocar imediatamente após o carregamento, ainda dentro do fluxo do clique
-        // O catch trata bloqueios de autoplay do navegador
-        audio.play().catch((err) => {
-          console.warn("Reprodução bloqueada pelo navegador:", err);
-          setIsProcessing(false);
-        });
+        // A reprodução deve ser imediata após o carregamento do SRC
+        // No Vercel, o atraso da rede pode ser maior, então usamos o evento canplaythrough
+        const playAudio = async () => {
+          try {
+            await audio.play();
+          } catch (err) {
+            console.error("Playback failed after interaction delay:", err);
+            setIsProcessing(false);
+          }
+        };
+
+        audio.oncanplaythrough = () => {
+          playAudio();
+          audio.oncanplaythrough = null;
+        };
 
         audio.onended = () => setIsProcessing(false);
-        audio.onerror = () => {
-          console.error("Erro na reprodução do áudio.");
+        audio.onerror = (err) => {
+          console.error("Audio Element Error:", err);
           setIsProcessing(false);
         };
       } else {
         setIsProcessing(false);
       }
     } catch (error) {
-      console.error("Falha no processo de voz:", error);
+      console.error("TTS Process failed:", error);
       setIsProcessing(false);
     }
   };
@@ -80,7 +96,7 @@ const AudioButton: React.FC<AudioButtonProps> = ({ text }) => {
       className={`p-2 rounded-full transition-all duration-200 flex items-center justify-center min-w-[40px] min-h-[40px] ${
         isProcessing 
           ? 'bg-indigo-100 text-indigo-400 cursor-wait' 
-          : 'bg-indigo-600 text-white hover:bg-indigo-700 active:scale-95 shadow-md'
+          : 'bg-indigo-600 text-white hover:bg-indigo-700 active:scale-90 shadow-md border-2 border-transparent focus:ring-2 focus:ring-indigo-400 outline-none'
       }`}
       aria-label="Ouvir áudio"
     >
