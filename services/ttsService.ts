@@ -9,42 +9,28 @@ class TTSService {
   }
 
   /**
-   * Encodes raw PCM 16-bit Mono (24000Hz) to a WAV Blob.
-   * This avoids using AudioContext completely, which can be restricted on some environments.
+   * Codifica dados PCM 16-bit Mono (24000Hz) em um Blob WAV.
+   * Evita AudioContext para máxima compatibilidade no Vercel.
    */
   private encodeWAV(samples: Int16Array): Blob {
     const sampleRate = 24000;
     const buffer = new ArrayBuffer(44 + samples.length * 2);
     const view = new DataView(buffer);
 
-    // RIFF identifier
     this.writeString(view, 0, 'RIFF');
-    // File length
     view.setUint32(4, 32 + samples.length * 2, true);
-    // RIFF type
     this.writeString(view, 8, 'WAVE');
-    // Format chunk identifier
     this.writeString(view, 12, 'fmt ');
-    // Format chunk length
     view.setUint32(16, 16, true);
-    // Sample format (raw)
-    view.setUint16(20, 1, true);
-    // Channel count
-    view.setUint16(22, 1, true);
-    // Sample rate
+    view.setUint16(20, 1, true); // PCM
+    view.setUint16(22, 1, true); // Mono
     view.setUint32(24, sampleRate, true);
-    // Byte rate (sample rate * block align)
     view.setUint32(28, sampleRate * 2, true);
-    // Block align (channel count * bytes per sample)
     view.setUint16(32, 2, true);
-    // Bits per sample
     view.setUint16(34, 16, true);
-    // Data chunk identifier
     this.writeString(view, 36, 'data');
-    // Data chunk length
     view.setUint32(40, samples.length * 2, true);
 
-    // Write the actual samples
     for (let i = 0; i < samples.length; i++) {
       view.setInt16(44 + i * 2, samples[i], true);
     }
@@ -63,8 +49,13 @@ class TTSService {
 
   async getAudioUrl(text: string): Promise<string | null> {
     try {
-      // Create fresh instance per request to ensure latest API key
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || "" });
+      const apiKey = process.env.API_KEY;
+      if (!apiKey) {
+        console.error("API_KEY não encontrada no ambiente.");
+        return null;
+      }
+
+      const ai = new GoogleGenAI({ apiKey });
       const response = await ai.models.generateContent({
         model: "gemini-2.5-flash-preview-tts",
         contents: [{ parts: [{ text: `Say clearly: ${text}` }] }],
@@ -82,12 +73,15 @@ class TTSService {
       if (!base64Data) return null;
 
       const uint8 = this.decodeBase64(base64Data);
-      const int16 = new Int16Array(uint8.buffer);
+      
+      // Garante que o buffer tenha tamanho par para Int16Array
+      const buffer = uint8.buffer.slice(uint8.byteOffset, uint8.byteOffset + uint8.byteLength);
+      const int16 = new Int16Array(buffer);
       const wavBlob = this.encodeWAV(int16);
       
       return URL.createObjectURL(wavBlob);
     } catch (error) {
-      console.error("TTS Fetch Error:", error);
+      console.error("Erro ao buscar áudio TTS:", error);
       return null;
     }
   }

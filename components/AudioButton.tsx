@@ -10,80 +10,65 @@ interface AudioButtonProps {
 
 const AudioButton: React.FC<AudioButtonProps> = ({ text }) => {
   const [isProcessing, setIsProcessing] = useState(false);
-  // Rule: Persist audio element via useRef to manage its lifecycle without extra renders
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioInstance = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
-    // Rule: Initialize the audio element safely inside the client-only effect
+    // Inicializa a instância apenas no cliente
     if (typeof window !== 'undefined') {
-      audioRef.current = new Audio();
+      audioInstance.current = new Audio();
     }
     
     return () => {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        if (audioRef.current.src && audioRef.current.src.startsWith('blob:')) {
-          URL.revokeObjectURL(audioRef.current.src);
+      if (audioInstance.current) {
+        audioInstance.current.pause();
+        if (audioInstance.current.src.startsWith('blob:')) {
+          URL.revokeObjectURL(audioInstance.current.src);
         }
-        audioRef.current = null;
+        audioInstance.current = null;
       }
     };
   }, []);
 
   const handlePlay = async (e: React.MouseEvent) => {
-    // Standard event management
     e.preventDefault();
     e.stopPropagation();
     
-    if (isProcessing || !audioRef.current) return;
+    if (isProcessing || !audioInstance.current) return;
 
     setIsProcessing(true);
     
     try {
-      // 1. Fetch dynamic WAV content from service
+      // 1. Gera a URL do Blob de forma assíncrona
       const url = await ttsService.getAudioUrl(text);
       
-      if (url && audioRef.current) {
-        const audio = audioRef.current;
+      if (url && audioInstance.current) {
+        const audio = audioInstance.current;
         
-        // Clean up previous blob source to manage memory
+        // Limpa recurso anterior
         if (audio.src && audio.src.startsWith('blob:')) {
           URL.revokeObjectURL(audio.src);
         }
 
-        // 2. Assign source and prepare playback
         audio.src = url;
         audio.load();
 
-        // 3. Initiate playback within the same interaction flow
-        // Required for mobile/Safari compliance: handle play() promise and catch blocks
-        const playPromise = audio.play();
-        
-        if (playPromise !== undefined) {
-          playPromise
-            .then(() => {
-              // Successfully started
-            })
-            .catch((err) => {
-              console.log("Autoplay bloqueado, aguardando interação do usuário.", err);
-              setIsProcessing(false);
-            });
-        }
-
-        // 4. Lifecycle listeners
-        audio.onended = () => {
+        // 2. Tenta tocar imediatamente após o carregamento, ainda dentro do fluxo do clique
+        // O catch trata bloqueios de autoplay do navegador
+        audio.play().catch((err) => {
+          console.warn("Reprodução bloqueada pelo navegador:", err);
           setIsProcessing(false);
-        };
+        });
 
+        audio.onended = () => setIsProcessing(false);
         audio.onerror = () => {
-          console.error("Audio playback error occurred.");
+          console.error("Erro na reprodução do áudio.");
           setIsProcessing(false);
         };
       } else {
         setIsProcessing(false);
       }
     } catch (error) {
-      console.error("Error processing text-to-speech:", error);
+      console.error("Falha no processo de voz:", error);
       setIsProcessing(false);
     }
   };
@@ -92,16 +77,15 @@ const AudioButton: React.FC<AudioButtonProps> = ({ text }) => {
     <button
       onClick={handlePlay}
       disabled={isProcessing}
-      className={`p-2 rounded-full transition-all duration-200 flex items-center justify-center min-w-[38px] min-h-[38px] ${
+      className={`p-2 rounded-full transition-all duration-200 flex items-center justify-center min-w-[40px] min-h-[40px] ${
         isProcessing 
           ? 'bg-indigo-100 text-indigo-400 cursor-wait' 
-          : 'bg-indigo-600 text-white hover:bg-indigo-700 active:scale-90 shadow-md border-2 border-transparent focus:ring-2 focus:ring-indigo-300 outline-none'
+          : 'bg-indigo-600 text-white hover:bg-indigo-700 active:scale-95 shadow-md'
       }`}
-      aria-label="Listen to pronunciation"
-      title="Listen"
+      aria-label="Ouvir áudio"
     >
       {isProcessing ? (
-        <svg className="animate-spin h-5 w-5 text-indigo-500" viewBox="0 0 24 24">
+        <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle>
           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
         </svg>
