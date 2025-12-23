@@ -10,14 +10,15 @@ interface AudioButtonProps {
 
 const AudioButton: React.FC<AudioButtonProps> = ({ text }) => {
   const [isProcessing, setIsProcessing] = useState(false);
-  // Uso de ref para persistir o elemento de áudio sem recriá-lo a cada render
+  // Rule: Persist audio element via useRef to manage its lifecycle without extra renders
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
-    // Inicialização segura apenas no lado do cliente (mount)
-    audioRef.current = new Audio();
+    // Rule: Initialize the audio element safely inside the client-only effect
+    if (typeof window !== 'undefined') {
+      audioRef.current = new Audio();
+    }
     
-    // Cleanup ao desmontar o componente
     return () => {
       if (audioRef.current) {
         audioRef.current.pause();
@@ -30,45 +31,59 @@ const AudioButton: React.FC<AudioButtonProps> = ({ text }) => {
   }, []);
 
   const handlePlay = async (e: React.MouseEvent) => {
+    // Standard event management
     e.preventDefault();
+    e.stopPropagation();
+    
     if (isProcessing || !audioRef.current) return;
 
     setIsProcessing(true);
     
     try {
-      // Obtém o áudio dinâmico do Gemini TTS em formato WAV Blob
+      // 1. Fetch dynamic WAV content from service
       const url = await ttsService.getAudioUrl(text);
       
       if (url && audioRef.current) {
-        // Limpa a URL anterior para economizar memória
-        if (audioRef.current.src && audioRef.current.src.startsWith('blob:')) {
-          URL.revokeObjectURL(audioRef.current.src);
+        const audio = audioRef.current;
+        
+        // Clean up previous blob source to manage memory
+        if (audio.src && audio.src.startsWith('blob:')) {
+          URL.revokeObjectURL(audio.src);
         }
 
-        audioRef.current.src = url;
-        audioRef.current.load(); // Garante que o novo source seja carregado
+        // 2. Assign source and prepare playback
+        audio.src = url;
+        audio.load();
 
-        // Tenta tocar o áudio capturando o erro de autoplay/bloqueio
-        const playPromise = audioRef.current.play();
+        // 3. Initiate playback within the same interaction flow
+        // Required for mobile/Safari compliance: handle play() promise and catch blocks
+        const playPromise = audio.play();
         
         if (playPromise !== undefined) {
-          playPromise.catch((err) => {
-            console.log("Autoplay bloqueado ou erro de reprodução:", err);
-            setIsProcessing(false);
-          });
+          playPromise
+            .then(() => {
+              // Successfully started
+            })
+            .catch((err) => {
+              console.log("Autoplay bloqueado, aguardando interação do usuário.", err);
+              setIsProcessing(false);
+            });
         }
 
-        // Callbacks de estado
-        audioRef.current.onended = () => setIsProcessing(false);
-        audioRef.current.onerror = () => {
-          console.error("Erro no elemento de áudio");
+        // 4. Lifecycle listeners
+        audio.onended = () => {
+          setIsProcessing(false);
+        };
+
+        audio.onerror = () => {
+          console.error("Audio playback error occurred.");
           setIsProcessing(false);
         };
       } else {
         setIsProcessing(false);
       }
     } catch (error) {
-      console.error("Falha no processo de áudio:", error);
+      console.error("Error processing text-to-speech:", error);
       setIsProcessing(false);
     }
   };
@@ -77,15 +92,16 @@ const AudioButton: React.FC<AudioButtonProps> = ({ text }) => {
     <button
       onClick={handlePlay}
       disabled={isProcessing}
-      className={`p-2 rounded-full transition-all duration-200 flex items-center justify-center min-w-[36px] min-h-[36px] ${
+      className={`p-2 rounded-full transition-all duration-200 flex items-center justify-center min-w-[38px] min-h-[38px] ${
         isProcessing 
-          ? 'bg-indigo-200 text-indigo-400 cursor-wait' 
-          : 'bg-indigo-600 text-white hover:bg-indigo-700 active:scale-90 shadow-md'
+          ? 'bg-indigo-100 text-indigo-400 cursor-wait' 
+          : 'bg-indigo-600 text-white hover:bg-indigo-700 active:scale-90 shadow-md border-2 border-transparent focus:ring-2 focus:ring-indigo-300 outline-none'
       }`}
-      aria-label="Ouvir pronúncia"
+      aria-label="Listen to pronunciation"
+      title="Listen"
     >
       {isProcessing ? (
-        <svg className="animate-spin h-4 w-4 text-white" viewBox="0 0 24 24">
+        <svg className="animate-spin h-5 w-5 text-indigo-500" viewBox="0 0 24 24">
           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle>
           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
         </svg>
@@ -94,9 +110,9 @@ const AudioButton: React.FC<AudioButtonProps> = ({ text }) => {
           xmlns="http://www.w3.org/2000/svg"
           fill="none"
           viewBox="0 0 24 24"
-          strokeWidth={2}
+          strokeWidth={2.5}
           stroke="currentColor"
-          className="w-4 h-4"
+          className="w-5 h-5"
         >
           <path
             strokeLinecap="round"
